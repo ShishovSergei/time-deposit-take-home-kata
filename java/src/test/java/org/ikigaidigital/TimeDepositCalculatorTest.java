@@ -52,6 +52,16 @@ class TimeDepositCalculatorTest {
     }
 
     @Test
+    void roundsAnExactHalfCentUp() {
+        TimeDeposit deposit = new TimeDeposit(1, "basic", 150.00, 31);
+
+        calculator.updateBalance(List.of(deposit));
+
+        // The monthly interest is exactly 0.125.
+        assertThat(deposit.getBalance()).isEqualTo(150.13);
+    }
+
+    @Test
     void updatesEachOriginalDepositAndPreservesItsOtherFields() {
         TimeDeposit student = new TimeDeposit(7, "student", 1200.00, 365);
         TimeDeposit unknown = new TimeDeposit(8, "other", 1200.00, 46);
