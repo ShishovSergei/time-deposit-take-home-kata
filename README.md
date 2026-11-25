@@ -80,7 +80,11 @@ docker compose up -d --wait postgres
 mvn -f java/pom.xml spring-boot:run
 ```
 
-Flyway creates the tables on startup. Open [Swagger UI](http://localhost:8080/swagger-ui.html), expand `GET /time-deposits`, select **Try it out**, then **Execute**. A fresh database returns `200` with `[]`. Populated results list deposits and their withdrawals in ascending ID order. The [OpenAPI contract](java/src/main/resources/static/openapi.yaml) also defines the balance update planned for the next stage.
+Flyway creates the tables on startup. Open [Swagger UI](http://localhost:8080/swagger-ui.html), expand `GET /time-deposits`, select **Try it out**, then **Execute**. A fresh database returns `200` with `[]`. Populated results list deposits and their withdrawals in ascending ID order.
+
+To apply one month's interest, execute `POST /time-deposits/update-balances` with no request body. A successful call returns `204`. Run GET again to see the new balances. Each additional POST accrues another month's interest on the current balances. The update changes only the balance and treats withdrawals as history. Both operations are described in the [OpenAPI contract](java/src/main/resources/static/openapi.yaml).
+
+The update runs in one transaction and locks deposits in ascending ID order before calculating interest. The application holds one batch of deposits at a time (256 by default, configured by `deposits.update-batch-size`). PostgreSQL holds the row locks until commit and rolls back the entire update if a batch fails.
 
 Stop the application with Ctrl+C and run `docker compose down` to stop PostgreSQL. The named volume retains the data.
 

@@ -22,7 +22,7 @@ public class TimeDepositCalculator {
         }
     }
 
-    BigDecimal monthlyInterest(TimeDeposit deposit) {
+    public BigDecimal monthlyInterest(TimeDeposit deposit) {
         InterestRule rule = PLAN_RULES.getOrDefault(deposit.getPlanType(), NO_INTEREST);
         double interest = rule.monthlyInterest(deposit);
         // Preserve the original binary value at half-cent boundaries before rounding.
