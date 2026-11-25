@@ -80,10 +80,12 @@ docker compose up -d --wait postgres
 mvn -f java/pom.xml spring-boot:run
 ```
 
-Flyway creates the tables on startup. Open [Swagger UI](http://localhost:8080/swagger-ui.html) to inspect the [OpenAPI contract](java/src/main/resources/static/openapi.yaml). At this stage both operations are specified; their handlers are scheduled for the next stages. Stop the application with Ctrl+C and run `docker compose down` to stop PostgreSQL. The named volume retains the data.
+Flyway creates the tables on startup. Open [Swagger UI](http://localhost:8080/swagger-ui.html), expand `GET /time-deposits`, select **Try it out**, then **Execute**. A fresh database returns `200` with `[]`. Populated results list deposits and their withdrawals in ascending ID order. The [OpenAPI contract](java/src/main/resources/static/openapi.yaml) also defines the balance update planned for the next stage.
+
+Stop the application with Ctrl+C and run `docker compose down` to stop PostgreSQL. The named volume retains the data.
 
 ### Verify the Java module
 
-Run `mvn -f java/pom.xml test` for the calculator tests. Run `mvn -f java/pom.xml verify` for the full build, including the Flyway schema tests. Testcontainers starts its own PostgreSQL instance through Docker; the Compose service is only needed when running the application.
+Run `mvn -f java/pom.xml test` for the calculator tests. Run `mvn -f java/pom.xml verify` for the full build, including the schema and HTTP integration tests. Testcontainers starts its own PostgreSQL instance through Docker; the Compose service is only needed when running the application.
 
 To run the same integration tests against a dedicated disposable PostgreSQL database, set `TEST_DATABASE_URL` to its JDBC URL and set `TEST_DATABASE_USERNAME` and `TEST_DATABASE_PASSWORD`. Flyway migrates that database. Review the expected balances against the business rules, inspect uncovered branches in `java/target/site/jacoco/index.html`, and review the diff before starting the next stage.
