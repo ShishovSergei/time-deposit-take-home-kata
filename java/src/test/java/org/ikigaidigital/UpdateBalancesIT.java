@@ -76,6 +76,19 @@ class UpdateBalancesIT {
     }
 
     @Test
+    void continuesToTheNextBatchWhenTheFirstBatchEarnsNoInterest() {
+        addDeposit(11, "basic", "1200", 30);
+        addDeposit(21, "student", "1200", 366);
+        addDeposit(31, "premium", "1200", 46);
+
+        postAndExpectNoContent();
+
+        assertThat(balanceOf(11)).isEqualByComparingTo("1200");
+        assertThat(balanceOf(21)).isEqualByComparingTo("1200");
+        assertThat(balanceOf(31)).isEqualByComparingTo("1205");
+    }
+
+    @Test
     void eachPostAccruesInterestOnTheCurrentDecimalBalance() {
         addDeposit(11, "premium", "1200.000000000000001", 46);
         postAndExpectNoContent();

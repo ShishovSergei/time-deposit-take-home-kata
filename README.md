@@ -1,5 +1,75 @@
 # Time Deposit Refactoring Kata - Take-Home Assignment
 
+## Run the Java solution
+
+From the repository root, use JDK 17, Maven 3.6.3 or later, and a running Docker engine with Docker Compose v2. The build starts PostgreSQL via Testcontainers and runs the unit and integration tests. The application uses a separate PostgreSQL instance on port 5432 and serves HTTP on port 8080.
+
+```sh
+mvn -f java/pom.xml clean verify
+docker compose up -d --wait postgres
+java -jar java/target/time-deposit-kata-1.0-SNAPSHOT.jar
+```
+
+After Spring Boot starts, open [Swagger UI](http://localhost:8080/swagger-ui.html). Expand `GET /time-deposits`, choose **Try it out**, then **Execute**. On a fresh database the response is `200` with `[]`. Flyway creates the tables at startup. The [OpenAPI contract](java/src/main/resources/static/openapi.yaml) describes both operations.
+
+### Try one monthly update
+
+In a second terminal, run `docker compose exec postgres psql -U kata -d time_deposits`. Paste this SQL once into a fresh demo database. The premium balance already includes the recorded withdrawal.
+
+```sql
+BEGIN;
+WITH premium AS (
+    INSERT INTO "timeDeposits" ("planType", days, balance)
+    VALUES ('premium', 46, 1200.00)
+    RETURNING id
+)
+INSERT INTO withdrawals ("timeDepositId", amount, date)
+SELECT id, 25.50, DATE '2026-02-01' FROM premium;
+
+INSERT INTO "timeDeposits" ("planType", days, balance)
+VALUES ('student', 366, 800.00);
+COMMIT;
+```
+
+1. Execute **GET /time-deposits** in Swagger UI. Check the two deposits against the **Before** column below.
+2. Expand **POST /time-deposits/update-balances**, choose **Try it out** and **Execute** once. The request has no body. A successful commit returns `204` with an empty response body.
+3. Execute **GET /time-deposits** again. Compare the balances with the **After one POST** column. Both GETs return the same IDs, days and withdrawal history, ordered by deposit ID and then withdrawal ID.
+
+| Plan | Days | Before | After one POST | Withdrawals |
+| --- | ---: | ---: | ---: | --- |
+| premium | 46 | 1200.00 | 1205.00 | One withdrawal of 25.50 on 2026-02-01 |
+| student | 366 | 800.00 | 800.00 | `[]` |
+
+Exit psql with `\q`, stop the Java process with Ctrl+C and run `docker compose down`. Compose retains the data in its named volume.
+
+### Interest rules and assumptions
+
+The original calculator defines the compatibility baseline. It treats the published rates as annual and calculates one month's interest on the current balance per call. Each successful POST represents another accrual, including a repeated request in the same calendar month. For the example above, a second POST brings the premium balance to 1210.02. The operation updates balances only. Days and withdrawal history are inputs or historical records.
+
+| Stored plan type | Annual rate | Eligible days, inclusive |
+| --- | ---: | --- |
+| `basic` | 1% | 31 onwards |
+| `student` | 3% | 31 through 365 |
+| `premium` | 5% | 46 onwards |
+
+Plan names are case-sensitive. An unrecognised plan earns zero interest. The shared Java API still updates the supplied `TimeDeposit` objects in place. Both entry points use the original calculation order, `balance × annualRate / 12` in Java `double`, then round the interest to cents using `HALF_UP` on the exact binary value. For example, a basic balance of 18.00 on day 31 earns 0.01 because the intermediate value falls just below 0.015. PostgreSQL adds the rounded credit to the stored `NUMERIC` balance, preserving any existing fractional cents.
+
+### Extending the solution and processing larger lists
+
+- **New plans.** Implement an `InterestRule`, or reuse `fixedAnnualRate` with a day predicate. Register the plan in `TimeDepositCalculator.PLAN_RULES` and add tests for its first and last eligible days. The controller and SQL adapters work with any stored plan name.
+- **Bulk updates.** The service reads in primary-key order using `id > lastId`, locks the selected rows, and writes credits in JDBC batches. `deposits.update-batch-size` defaults to 256. Ten times as many deposits means roughly ten times as many rows to process. Application memory for the update stays proportional to the batch size. A single transaction makes the update atomic and holds row locks until commit. Overlapping POSTs can therefore wait for one another.
+- **Full-list reads.** GET uses one ordered `LEFT JOIN` and includes deposits with no withdrawals. The response and its in-memory representation grow with the total number of deposits and withdrawals.
+
+### Tests
+
+Use `mvn -f java/pom.xml test` for a fast calculator check. The full `clean verify` above also exercises Flyway, the HTTP contract, repeated accrual, concurrent POSTs and rollback after a failed batch. Inspect the JaCoCo branch report at `java/target/site/jacoco/index.html`. To use an existing PostgreSQL instance for integration tests, supply an **empty, disposable database** via `TEST_DATABASE_URL`, `TEST_DATABASE_USERNAME` and `TEST_DATABASE_PASSWORD`. The suite migrates the schema and exercises the bulk update against that database.
+
+### How I used AI
+
+I used Codex in IntelliJ IDEA and took a test-first approach to refactoring the calculator. Codex helped me write tests for the existing interest rules, including day boundaries and rounding. I used those tests to check that the refactored calculator produced the same results as the original.
+
+I then wrote the REST controllers and used Codex to suggest integration test cases for both endpoints. For example, one test checks that if a batch update fails, PostgreSQL rolls back the earlier balance changes too. My working rule for Codex was simple: work on one change at a time, run the relevant tests, and stop so I can review the diff.
+
 ## XA Bank Time Deposit
 
 ### Context
@@ -70,26 +140,3 @@ A junior developer implemented domain logic for a time deposit system but did no
 ### Submission Instructions
 - Provide clear instructions on how to trigger the endpoints using the Swagger contract.
 - Email the link to your public GitHub repository.
-
-### Run the Java application
-
-From the repository root, use JDK 17, Maven and Docker Compose:
-
-```sh
-docker compose up -d --wait postgres
-mvn -f java/pom.xml spring-boot:run
-```
-
-Flyway creates the tables on startup. Open [Swagger UI](http://localhost:8080/swagger-ui.html), expand `GET /time-deposits`, select **Try it out**, then **Execute**. A fresh database returns `200` with `[]`. Populated results list deposits and their withdrawals in ascending ID order.
-
-To apply one month's interest, execute `POST /time-deposits/update-balances` with no request body. A successful call returns `204`. Run GET again to see the new balances. Each additional POST accrues another month's interest on the current balances. The update changes only the balance and treats withdrawals as history. Both operations are described in the [OpenAPI contract](java/src/main/resources/static/openapi.yaml).
-
-The update runs in one transaction and locks deposits in ascending ID order before calculating interest. The application holds one batch of deposits at a time (256 by default, configured by `deposits.update-batch-size`). PostgreSQL holds the row locks until commit and rolls back the entire update if a batch fails.
-
-Stop the application with Ctrl+C and run `docker compose down` to stop PostgreSQL. The named volume retains the data.
-
-### Verify the Java module
-
-Run `mvn -f java/pom.xml test` for the calculator tests. Run `mvn -f java/pom.xml verify` for the full build, including the schema and HTTP integration tests. Testcontainers starts its own PostgreSQL instance through Docker; the Compose service is only needed when running the application.
-
-To run the same integration tests against a dedicated disposable PostgreSQL database, set `TEST_DATABASE_URL` to its JDBC URL and set `TEST_DATABASE_USERNAME` and `TEST_DATABASE_PASSWORD`. Flyway migrates that database. Review the expected balances against the business rules, inspect uncovered branches in `java/target/site/jacoco/index.html`, and review the diff before starting the next stage.
