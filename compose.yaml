@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16.16-alpine
+    environment:
+      POSTGRES_DB: time_deposits
+      POSTGRES_USER: kata
+      POSTGRES_PASSWORD: kata
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - deposit-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kata -d time_deposits"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  deposit-data:
